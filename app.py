@@ -25,6 +25,10 @@ with st.sidebar:
     if st.button("\U0001f504 Refresh Data", use_container_width=True):
         get_board.clear()
         st.rerun()
+    st.divider()
+    if st.button("\U0001f4ca Leadership Brief", type="primary", use_container_width=True):
+        st.session_state.messages.append({"role": "user", "content": "__BRIEF__"})
+        st.rerun()
 
 
 def ask_gemini(question, history):
@@ -34,8 +38,9 @@ def ask_gemini(question, history):
     genai.configure(api_key=api_key)
     stats  = build_stats(wo_df, deals_df)
     system = ("You are a business intelligence analyst for Skylark Drones. "
-              "Answer founder-level questions using ONLY the provided data summary. "
-              "Give insight and context, not just numbers. "
+              "Answer founder-level questions using ONLY the provided data summary — "
+              "give insight and context, not just numbers. "
+              "Mention data quality caveats when relevant. "
               "If the question is ambiguous, ask ONE clarifying question before answering.")
     prompt = f"{system}\n\nLive data summary:\n{stats}\n\nQuestion: {question}"
     try:
@@ -47,9 +52,35 @@ def ask_gemini(question, history):
         return f"\u26a0\ufe0f Gemini error: {e}"
 
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+def make_brief():
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        return "\u26a0\ufe0f GEMINI_API_KEY is not set."
+    genai.configure(api_key=api_key)
+    stats  = build_stats(wo_df, deals_df)
+    prompt = ("Write a one-page leadership brief for Skylark Drones founders.\n"
+              "Include: weighted open pipeline value, top 3 sectors by revenue, "
+              "collections outstanding, win rate, and 2-3 key risks or flags. "
+              "Format as clean markdown. Keep it concise.\n\n"
+              f"Data: {stats}")
+    try:
+        return genai.GenerativeModel(GEMINI_MODEL).generate_content(prompt).text
+    except Exception as e:
+        return f"\u26a0\ufe0f Error: {e}"
+
+
+for i, msg in enumerate(st.session_state.messages):
+    if msg["content"] == "__BRIEF__":
+        with st.chat_message("assistant"):
+            with st.spinner("Generating leadership brief..."):
+                brief = make_brief()
+            st.markdown(f"## \U0001f4ca Leadership Brief\n\n{brief}")
+        st.session_state.messages[i] = {"role": "assistant",
+                                         "content": f"## \U0001f4ca Leadership Brief\n\n{brief}"}
+        st.rerun()
+    else:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     q = st.session_state.messages[-1]["content"]

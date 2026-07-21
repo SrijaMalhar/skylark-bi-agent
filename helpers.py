@@ -34,3 +34,35 @@ def clean_work_orders(df):
             df[col] = df[col].replace("Nan", pd.NA)
 
     return df.reset_index(drop=True)
+
+def clean_deals(df):
+    for col in ["Deal Stage", "Sector/service", "Deal Status"]:
+        if col in df.columns:
+            df = df[df[col].astype(str).str.strip() != col]
+
+    if DEALS_MONEY_COL in df.columns:
+        df[DEALS_MONEY_COL] = pd.to_numeric(df[DEALS_MONEY_COL], errors="coerce")
+
+    for col in ["Tentative Close Date", "Created Date"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+
+    for col in ["Sector/service", "Deal Status"]:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip().str.title()
+            df[col] = df[col].replace("Nan", pd.NA)
+
+    # L/N/O = dead, G/H/J/K = won, everything else = open
+    if "Deal Stage" in df.columns:
+        def classify(stage):
+            if pd.isna(stage):
+                return "unknown"
+            p = str(stage).strip()[:2]
+            if p in ("L.", "N.", "O."):
+                return "dead"
+            if p in ("G.", "H.", "J.", "K.") or "project completed" in str(stage).lower():
+                return "won"
+            return "open"
+        df["stage_type"] = df["Deal Stage"].apply(classify)
+
+    return df.reset_index(drop=True)

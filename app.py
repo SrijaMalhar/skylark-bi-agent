@@ -6,9 +6,9 @@ from monday_api import get_board
 from helpers import clean_work_orders, clean_deals, build_stats
 from config import WORK_ORDERS_BOARD_ID, DEALS_BOARD_ID, GEMINI_MODEL
 
-st.set_page_config(page_title="Skylark BI Agent", page_icon="\U0001f681")
-st.title("\U0001f681 Skylark Drones BI Agent")
-st.caption("Ask questions about revenue, pipeline, and operations.")
+st.set_page_config(page_title="Skylark BI Agent", page_icon="\U0001f681", layout="wide")
+st.title("\U0001f681 Skylark Drones — BI Agent")
+st.caption("Ask questions about revenue, pipeline health, sector performance, and operations.")
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -18,26 +18,33 @@ deals_raw, deals_err = get_board(DEALS_BOARD_ID)
 wo_df    = clean_work_orders(wo_raw.copy())   if wo_raw    is not None else None
 deals_df = clean_deals(deals_raw.copy()) if deals_raw is not None else None
 
-if wo_err:    st.error(wo_err)
-if deals_err: st.error(deals_err)
+with st.sidebar:
+    st.subheader("\U0001f4e1 Board Status")
+    st.success(f"Work Orders \u2705 — {len(wo_df)} rows") if not wo_err else st.error(f"Work Orders \u274c\n{wo_err}")
+    st.success(f"Deals \u2705 — {len(deals_df)} rows")    if not deals_err else st.error(f"Deals \u274c\n{deals_err}")
+    if st.button("\U0001f504 Refresh Data", use_container_width=True):
+        get_board.clear()
+        st.rerun()
 
 
 def ask_gemini(question, history):
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        return "GEMINI_API_KEY not set. Add it to your environment."
+        return "\u26a0\ufe0f GEMINI_API_KEY is not set."
     genai.configure(api_key=api_key)
     stats  = build_stats(wo_df, deals_df)
-    system = ("You are a BI analyst for Skylark Drones. "
-              "Answer questions using ONLY the provided data. Give insights not just numbers.")
-    prompt = f"{system}\n\nData: {stats}\n\nQuestion: {question}"
+    system = ("You are a business intelligence analyst for Skylark Drones. "
+              "Answer founder-level questions using ONLY the provided data summary. "
+              "Give insight and context, not just numbers. "
+              "If the question is ambiguous, ask ONE clarifying question before answering.")
+    prompt = f"{system}\n\nLive data summary:\n{stats}\n\nQuestion: {question}"
     try:
         hist = [{"role": "user" if m["role"]=="user" else "model", "parts": [m["content"]]}
                 for m in history[:-1]]
         model = genai.GenerativeModel(GEMINI_MODEL)
         return model.start_chat(history=hist).send_message(prompt).text
     except Exception as e:
-        return f"Gemini error: {e}"
+        return f"\u26a0\ufe0f Gemini error: {e}"
 
 
 for msg in st.session_state.messages:

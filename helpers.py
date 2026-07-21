@@ -18,7 +18,7 @@ def fmt_inr(val):
 
 
 def clean_work_orders(df):
-    # drop stray header rows (the cell literally equals the column name)
+    # drop stray header rows (rows where the cell equals its own column name)
     for col in ["Sector", "Execution Status", "Nature of Work", "Type of Work"]:
         if col in df.columns:
             df = df[df[col].astype(str).str.strip() != col]
@@ -34,6 +34,7 @@ def clean_work_orders(df):
             df[col] = df[col].replace("Nan", pd.NA)
 
     return df.reset_index(drop=True)
+
 
 def clean_deals(df):
     for col in ["Deal Stage", "Sector/service", "Deal Status"]:
@@ -52,7 +53,7 @@ def clean_deals(df):
             df[col] = df[col].astype(str).str.strip().str.title()
             df[col] = df[col].replace("Nan", pd.NA)
 
-    # L/N/O = dead, G/H/J/K = won, everything else = open
+    # L/N/O = dead, G/H/J/K = won, everything else = open pipeline
     if "Deal Stage" in df.columns:
         def classify(stage):
             if pd.isna(stage):
@@ -67,8 +68,9 @@ def clean_deals(df):
 
     return df.reset_index(drop=True)
 
+
 def build_stats(wo_df, deals_df):
-    """Compact stats dict passed to Gemini instead of raw rows."""
+    """Compact stats block passed to Gemini instead of raw rows."""
     stats = {}
 
     if wo_df is not None and not wo_df.empty:
@@ -81,8 +83,7 @@ def build_stats(wo_df, deals_df):
             if col in wo_df.columns:
                 s = wo_df[col].dropna()
                 if not s.empty:
-                    stats[col] = {"sum": fmt_inr(s.sum()), "mean": fmt_inr(s.mean()),
-                                  "non_null_count": len(s)}
+                    stats[col] = {"sum": fmt_inr(s.sum()), "mean": fmt_inr(s.mean()), "non_null_count": len(s)}
 
     if deals_df is not None and not deals_df.empty:
         stats["deals_total_rows"] = len(deals_df)
@@ -94,7 +95,8 @@ def build_stats(wo_df, deals_df):
             stats["top_sectors_deals"] = deals_df["Sector/service"].dropna().value_counts().head(8).to_dict()
         if DEALS_MONEY_COL in deals_df.columns and "stage_type" in deals_df.columns:
             open_df = deals_df[deals_df["stage_type"] == "open"]
-            stats["open_pipeline_raw"] = fmt_inr(open_df[DEALS_MONEY_COL].dropna().sum())
+            raw_pipeline = open_df[DEALS_MONEY_COL].dropna().sum()
+            stats["open_pipeline_raw"] = fmt_inr(raw_pipeline)
 
             def get_weight(row):
                 p = row.get("Closure Probability")
@@ -111,7 +113,7 @@ def build_stats(wo_df, deals_df):
                 stats["weighted_pipeline"] = fmt_inr((vals * weights).sum())
 
         if "stage_type" in deals_df.columns:
-            won  = int((deals_df["stage_type"] == "won").sum())
+            won = int((deals_df["stage_type"] == "won").sum())
             dead = int((deals_df["stage_type"] == "dead").sum())
             if won + dead > 0:
                 stats["win_rate"] = f"{won/(won+dead)*100:.1f}% ({won} won / {dead} lost)"
@@ -121,3 +123,18 @@ def build_stats(wo_df, deals_df):
         stats["collections_outstanding"] = fmt_inr(wo_df[recv_col].dropna().sum())
 
     return stats
+
+
+def data_quality_notes(wo_df, deals_df):
+    notes = []
+    if wo_df is not None:
+        for col in WO_MONEY_COLS:
+            if col in wo_df.columns:
+                pct = wo_df[col].isna().mean() * 100
+                if pct > 10:
+                    notes.append(f"- {pct:.0f}% of work orders have no *{col}* recorded")
+    if deals_df is not None and DEALS_MONEY_COL in deals_df.columns:
+        pct = deals_df[DEALS_MONEY_COL].isna().mean() * 100
+        if pct > 10:
+            notes.append(f"- {pct:.0f}% of deals are missing a deal value")
+    return "\n".join(notes) if notes else "No major data quality issues detected."
